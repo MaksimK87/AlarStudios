@@ -17,12 +17,19 @@ import java.net.UnknownHostException;
 
 public class TcpClient implements Runnable {
 
-    private static final int PORT = 53200;
+    public static Object ipConnectionLock = new Object();
+    public static final int PORT = 53200;
+    private InetAddress inetAddress;
+
+
+    public TcpClient(InetAddress inetAddress) {
+        this.inetAddress = inetAddress;
+    }
 
     public void run() {
         EventLoopGroup group = new NioEventLoopGroup();
         try {
-            InetAddress inetAddress = InetAddress.getLocalHost();
+            // InetAddress inetAddress = InetAddress.getLocalHost();
             Bootstrap clientBootstrap = new Bootstrap();
             clientBootstrap.group(group);
             clientBootstrap.channel(NioSocketChannel.class);
@@ -41,9 +48,11 @@ public class TcpClient implements Runnable {
             });
             ChannelFuture channelFuture = clientBootstrap.connect().sync();
             channelFuture.channel().closeFuture().sync();
-        } catch (InterruptedException | UnknownHostException e) {
+        } catch (InterruptedException e) {
+            synchronized (ipConnectionLock) {
+                ipConnectionLock.notify();
+            }
             // Logging exception
-            ApplicationLogic.isClientActive.set(false);
         } finally {
             try {
                 ApplicationLogic.isClientActive.set(false);

@@ -19,14 +19,10 @@ public class TcpServer implements Runnable {
     public static volatile Object pauseLock = new Object();
     private static final int PORT = 53200;
     private ChannelFuture channelFuture;
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
 
     public void run() {
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
-        this.bossGroup = bossGroup;
-        this.workerGroup = workerGroup;
         try {
             InetAddress inetAddress = InetAddress.getLocalHost();
             ServerBootstrap serverBootstrap = new ServerBootstrap();

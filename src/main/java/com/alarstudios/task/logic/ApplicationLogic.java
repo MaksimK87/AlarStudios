@@ -2,46 +2,44 @@ package com.alarstudios.task.logic;
 
 import com.alarstudios.task.client.ClientHandler;
 import com.alarstudios.task.client.TcpClient;
+import com.alarstudios.task.ipscanner.IpScanner;
 import com.alarstudios.task.server.ServerHandler;
 import com.alarstudios.task.server.TcpServer;
 import io.netty.channel.Channel;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Comparator;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ApplicationLogic extends Thread {
 
-    private static final int PRIORITY_RANGE = 1_000_000;
-    private static final int MIN_APP_UNIT_FOR_LEADER_SELECTION = 2;
-
     private static TcpClient client;
     private static TcpServer server;
+    private static CopyOnWriteArrayList<InetAddress> availableIp;
 
-    public static String priority;
 
     public static AtomicBoolean isLeaderExists;
     public static AtomicBoolean isLeader;
+
     public static AtomicBoolean isServerActive;
     public static AtomicBoolean isClientActive;
-    public static AtomicBoolean isDelivered;
+    public static AtomicBoolean isNewLeader;
 
     {
         isLeader = new AtomicBoolean(false);
         isServerActive = new AtomicBoolean(false);
         isClientActive = new AtomicBoolean(false);
-        isDelivered = new AtomicBoolean(false);
         isLeaderExists = new AtomicBoolean(false);
-        priority = generatePriority();
+        isNewLeader = new AtomicBoolean(false);
     }
 
     /**
      * First launch of server
      */
-    public void initServer() {
+    private void initServer() {
         server = new TcpServer();
         new Thread(server).start();
     }
@@ -49,19 +47,28 @@ public class ApplicationLogic extends Thread {
     /**
      * First launch of client
      */
-    public void initClient() {
-        client = new TcpClient();
+    private void initClient(InetAddress inetAddress) {
+        client = new TcpClient(inetAddress);
         new Thread(client).start();
     }
 
     /**
      * Restart client after loosing connection with server
      */
-    public void restartClient() {
-        ApplicationLogic.priority = null;
-        client = new TcpClient();
+    private void restartClient(InetAddress inetAddress) {
+        client = new TcpClient(inetAddress);
         new Thread(client).start();
     }
+
+    /**
+     * Scanning network to find another servers
+     */
+    private CopyOnWriteArrayList<InetAddress> scanNetwork() throws InterruptedException {
+        IpScanner.findNetworkIp();
+        Thread.sleep(3000);
+        return IpScanner.getAvailableIp();
+    }
+
 
     /**
      * This method stops server in case of leader is chosen
@@ -86,40 +93,50 @@ public class ApplicationLogic extends Thread {
             synchronized (TcpServer.pauseLock) {
                 TcpServer.pauseLock.wait();
             }
-            initClient();
+            availableIp = scanNetwork();
+            Thread.sleep(5000);
+            InetAddress leaderAddress = findLeaderIp(IpScanner.getAvailableIp());
+            if (InetAddress.getLocalHost().equals(leaderAddress) && availableIp.size() > 1) {
+                assignNewLeader();
+            }
+            initClient(leaderAddress);
             synchronized (ClientHandler.pauseLock) {
                 ClientHandler.pauseLock.wait();
             }
             System.out.println("{Logic} AFTER INIT < client: " + isClientActive +
-                    " > " + "< server: " + isServerActive + " > < priority: " + priority + " >");
+                    " > " + "< server: " + isServerActive + " > ");
             if (!isLeaderExists.get()) {
-                createLeader();
-                while (isClientActive.get()) {
-                    Thread.sleep(300);
-                }
-                if (isLeader.get()) {
-                    initServer();
-                    synchronized (TcpServer.pauseLock) {
-                        TcpServer.pauseLock.wait();
-                    }
-                    while (!isServerActive.get()) {
-                        Thread.sleep(300);
-                    }
-                }
-                restartClient();
-                synchronized (ClientHandler.pauseLock) {
-                    ClientHandler.pauseLock.wait();
-                }
+
                 System.out.println("{Logic} LEADER condition: { isLeader: " + isLeader.get() +
                         " } { isServerActive: " + isServerActive + " } { isClientActive: " + isClientActive
-                        + " } { Current priority: " + priority + " }");
+                        + " }");
             }
-            if (isServerActive.get()) {
+            if (isServerActive.get() && isLeader.get()) {
                 pingClients();
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
         }
+    }
+
+    private void assignNewLeader() {
+        isNewLeader.set(true);
+        for (int i = availableIp.size() - 2; i >= 0; i--) {
+            new TcpClient(availableIp.get(i));
+        }
+
+    }
+
+    private InetAddress findLeaderIp(CopyOnWriteArrayList<InetAddress> networkLeaderCandidateChannels) {
+        System.out.println("Leader candidate channel: " + networkLeaderCandidateChannels);
+        Optional<InetAddress> leaderAddress = networkLeaderCandidateChannels
+                .stream()
+                .max(Comparator.comparing((address)
+                        -> Byte.toUnsignedInt(address.getAddress()[3])));
+        System.out.println("Leader IP address: " + leaderAddress);
+        return leaderAddress.get();
     }
 
     /**
@@ -128,32 +145,16 @@ public class ApplicationLogic extends Thread {
      * and choose leader. Initially leader will be chosen if server find two clients. Leader is app with maximum priority.
      * App that connected after selection just connects to current leader.
      */
-    private void createLeader() throws InterruptedException {
+    /*private void createLocalLeader() throws InterruptedException {
         if (isServerActive.get()) {
-            while (ServerHandler.getLeaderCandidateChannels().size() < MIN_APP_UNIT_FOR_LEADER_SELECTION) {
-                System.out.println("{Logic} Waiting for more connections " + ServerHandler.getLeaderCandidateChannels().size());
+            while (ServerHandler.getLocalLeaderCandidateChannels().size() < MIN_APP_UNIT_FOR_LEADER_SELECTION) {
+                System.out.println("{Logic} Waiting for more connections " + ServerHandler.getLocalLeaderCandidateChannels().size());
                 Thread.sleep(2000);
             }
-            Channel leaderChannel = findLeader(ServerHandler.getLeaderCandidateChannels());
-            sendLeaderNotification(leaderChannel);
+            Channel leaderChannel = findLocalLeader(ServerHandler.getLocalLeaderCandidateChannels());
+            sendLocalLeaderNotification(leaderChannel);
         }
-    }
-
-    private Channel findLeader(ConcurrentHashMap<Channel, Integer> channels) {
-        Optional<Map.Entry<Channel, Integer>> maxPriorityChannel = channels.entrySet().stream()
-                .max(Comparator.comparing((Map.Entry<Channel, Integer> entry1) -> entry1.getValue()));
-        System.out.println("{Logic} Max priority: " + maxPriorityChannel.get().getValue());
-        return maxPriorityChannel.get().getKey();
-    }
-
-    private void sendLeaderNotification(Channel leaderChannel) throws InterruptedException {
-        leaderChannel.writeAndFlush("leader");
-        synchronized (ServerHandler.pauseLock) {
-            ServerHandler.pauseLock.wait();
-        }
-        ServerHandler.getLeaderCandidateChannels().clear();
-    }
-
+    }*/
     private void pingClients() {
         for (Channel channel : ServerHandler.getPingChannels()) {
             if (channel.isActive() || channel.isOpen()) {
@@ -162,10 +163,6 @@ public class ApplicationLogic extends Thread {
                 ServerHandler.getPingChannels().remove(channel);
             }
         }
-    }
-
-    static String generatePriority() {
-        return String.valueOf(new Random().nextInt(PRIORITY_RANGE));
     }
 
 }

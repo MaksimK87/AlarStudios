@@ -13,7 +13,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class ServerHandler extends SimpleChannelInboundHandler<String> {
 
     public static final Object pauseLock = new Object();
-    private static final ConcurrentHashMap<Channel, Integer> LeaderCandidateChannels = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Channel, Integer> NetworkLeaderCandidateChannels = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Channel, Integer> LocalLeaderCandidateChannels = new ConcurrentHashMap<>();
     private static CopyOnWriteArrayList<Channel> pingChannels = new CopyOnWriteArrayList<>();
 
     @Override
@@ -26,27 +27,23 @@ public class ServerHandler extends SimpleChannelInboundHandler<String> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, String msg) {
-        if (msg.contains("LeaderOK")) {
-            ApplicationLogic.isDelivered.set(true);
-            ctx.close();
-            ApplicationLogic.stopServer();
-            synchronized (pauseLock) {
-                pauseLock.notify();
-            }
+        if (msg.contains("leader")) {
+            ApplicationLogic.isLeader.set(true);
+            System.out.println("{ClientHandler} I'm LEADER!!!");
+            ctx.writeAndFlush("LeaderExists");
             return;
         }
+
         if (msg.contains("Pong")) {
             ctx.writeAndFlush("Ping" + System.lineSeparator());
             return;
         }
-        if (isInteger(msg)) {
-            if (ApplicationLogic.isLeader.get()) {
-                ctx.writeAndFlush("LeaderExists");
-                return;
-            }
-            LeaderCandidateChannels.put(ctx.channel(), Integer.valueOf(msg));
+        if (msg.contains("newLeader")) {
+            ApplicationLogic.isLeader.set(false);
+            System.out.println("{ClientHandler} New leader exist!!!");
             ctx.flush();
-            System.out.println("{ServerHand} Current channelMap size before elections: " + LeaderCandidateChannels.size());
+            ApplicationLogic.stopServer();
+            return;
         }
     }
 
@@ -55,34 +52,6 @@ public class ServerHandler extends SimpleChannelInboundHandler<String> {
         ApplicationLogic.isLeader.set(false);
         cause.printStackTrace();
         ctx.close();
-    }
-
-    private boolean isInteger(String str) {
-        if (str == null) {
-            return false;
-        }
-        int length = str.length();
-        if (length == 0) {
-            return false;
-        }
-        int i = 0;
-        if (str.charAt(0) == '-') {
-            if (length == 1) {
-                return false;
-            }
-            i = 1;
-        }
-        for (; i < length; i++) {
-            char c = str.charAt(i);
-            if (c < '0' || c > '9') {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public static ConcurrentHashMap<Channel, Integer> getLeaderCandidateChannels() {
-        return LeaderCandidateChannels;
     }
 
     public static CopyOnWriteArrayList<Channel> getPingChannels() {

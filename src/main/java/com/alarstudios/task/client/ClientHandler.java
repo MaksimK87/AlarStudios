@@ -13,34 +13,29 @@ public class ClientHandler extends SimpleChannelInboundHandler<String> {
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, String msg) {
 
-        if (msg.contains("leader")) {
-            ApplicationLogic.isLeader.set(true);
-            System.out.println("{ClientHandler} I'm LEADER!!!");
-            ctx.writeAndFlush("LeaderOK");
-            return;
-        }
         if (msg.contains("LeaderExists")) {
             System.out.println("{ClientHandler} Connected to LEADER!");
             ApplicationLogic.isLeaderExists.set(true);
-            ApplicationLogic.priority = null;
             ctx.writeAndFlush("Pong");
             return;
         }
 
         if (msg.contains("Ping")) {
-            //System.out.println(msg);
+            System.out.println(msg);
             ctx.writeAndFlush("Pong" + System.lineSeparator());
         }
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
+        ApplicationLogic.isClientActive.set(true);
+        if (ApplicationLogic.isNewLeader.get()) {
+            ctx.writeAndFlush(Unpooled.copiedBuffer("newLeader", CharsetUtil.UTF_8));
+            return;
+        }
+        ctx.writeAndFlush(Unpooled.copiedBuffer("leader", CharsetUtil.UTF_8));
         synchronized (pauseLock) {
             pauseLock.notify();
-        }
-        ApplicationLogic.isClientActive.set(true);
-        if (ApplicationLogic.priority != null) {
-            ctx.writeAndFlush(Unpooled.copiedBuffer(ApplicationLogic.priority, CharsetUtil.UTF_8));
         }
     }
 
