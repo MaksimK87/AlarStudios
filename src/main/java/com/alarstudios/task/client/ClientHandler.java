@@ -48,7 +48,7 @@ public class ClientHandler extends SimpleChannelInboundHandler<String> {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         ApplicationLogic.isClientActive.set(false);
-        cause.printStackTrace();
+        //logging cause
         ctx.close();
         new ApplicationLogic().start();
         System.out.println("Server connection has lost, application will restart!");

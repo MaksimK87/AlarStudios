@@ -46,7 +46,7 @@ public class ServerHandler extends SimpleChannelInboundHandler<String> {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         ApplicationLogic.isLeader.set(false);
-        cause.printStackTrace();
+        //logging cause
         ctx.close();
     }
 
