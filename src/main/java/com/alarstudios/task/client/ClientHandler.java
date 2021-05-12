@@ -21,7 +21,7 @@ public class ClientHandler extends SimpleChannelInboundHandler<String> {
         }
 
         if (msg.contains("Ping")) {
-            System.out.println(msg);
+            // System.out.println(msg);
             ctx.writeAndFlush("Pong" + System.lineSeparator());
         }
     }
@@ -30,7 +30,13 @@ public class ClientHandler extends SimpleChannelInboundHandler<String> {
     public void channelActive(ChannelHandlerContext ctx) {
         ApplicationLogic.isClientActive.set(true);
         if (ApplicationLogic.isNewLeader.get()) {
+            System.out.println("{ClientHandler} send NewLeader!");
             ctx.writeAndFlush(Unpooled.copiedBuffer("newLeader", CharsetUtil.UTF_8));
+            ApplicationLogic.isNewLeader.set(false);
+            ApplicationLogic.isLeader.set(true);
+            synchronized (TcpClient.ipConnectionLock) {
+                TcpClient.ipConnectionLock.notify();
+            }
             return;
         }
         ctx.writeAndFlush(Unpooled.copiedBuffer("leader", CharsetUtil.UTF_8));

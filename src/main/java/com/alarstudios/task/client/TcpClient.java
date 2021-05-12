@@ -2,22 +2,22 @@ package com.alarstudios.task.client;
 
 import com.alarstudios.task.logic.ApplicationLogic;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.*;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.DelimiterBasedFrameDecoder;
-import io.netty.handler.codec.Delimiters;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 
 public class TcpClient implements Runnable {
 
-    public static Object ipConnectionLock = new Object();
+    public static final Object ipConnectionLock = new Object();
     public static final int PORT = 53200;
     private InetAddress inetAddress;
 
@@ -62,5 +62,4 @@ public class TcpClient implements Runnable {
             }
         }
     }
-
 }

@@ -12,7 +12,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class IpScanner {
 
     private static final CopyOnWriteArrayList<InetAddress> availableIp = new CopyOnWriteArrayList<>();
-    public static Object ipLock = new Object();
 
     public static void findNetworkIp() {
         availableIp.clear();
@@ -30,17 +29,14 @@ public class IpScanner {
                     ip[3] = (byte) j;
                     InetAddress address = InetAddress.getByAddress(ip);
                     String output = address.toString().substring(1);
-                    if (address.isReachable(5000)) {
+                    if (address.isReachable(3000)) {
                         if (checkConnection(address)) {
                             availableIp.add(address);
-                            //System.out.println("Available IP addr: " + address);
+                            System.out.println("Available IP addr: " + address);
                         }
-                        // System.out.println(output + " is on the network");
-                    } else {
-                        // System.out.println("Not Reachable: "+output);
                     }
                 } catch (Exception e) {
-                    // e.printStackTrace();
+                    // Logging
                 }
             }).start();
         }
@@ -56,7 +52,6 @@ public class IpScanner {
         try {
             socket = new Socket(inetAddress, TcpClient.PORT);
             socket.close();
-            // System.out.println("New socket connection in network");
         } catch (IOException e) {
             return false;
         }

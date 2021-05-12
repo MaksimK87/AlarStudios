@@ -27,6 +27,7 @@ public class ApplicationLogic extends Thread {
     public static AtomicBoolean isServerActive;
     public static AtomicBoolean isClientActive;
     public static AtomicBoolean isNewLeader;
+    public static AtomicBoolean isNewLeaderExists;
 
     {
         isLeader = new AtomicBoolean(false);
@@ -34,6 +35,84 @@ public class ApplicationLogic extends Thread {
         isClientActive = new AtomicBoolean(false);
         isLeaderExists = new AtomicBoolean(false);
         isNewLeader = new AtomicBoolean(false);
+        isNewLeaderExists = new AtomicBoolean(false);
+    }
+
+    /**
+     * Main logic of application.
+     * After scanning network, there are list of available ip addresses, for connection and ping.
+     * For choosing leader, is taken server with max last number in ip address if new connected server has max
+     * number and leader already exists with another ip and has less last number - leader is re-elected again;
+     * Finally server starts pinging another participants.
+     */
+    public void run() {
+        try {
+            initServer();
+            synchronized (TcpServer.pauseLock) {
+                TcpServer.pauseLock.wait();
+            }
+            availableIp = scanNetwork();
+            Thread.sleep(5000);
+            InetAddress leaderAddress = findLeaderIp(IpScanner.getAvailableIp());
+            if (InetAddress.getLocalHost().equals(leaderAddress) && availableIp.size() > 1) {
+                assignNewLeader();
+            }
+            initClient(leaderAddress);
+            synchronized (ClientHandler.pauseLock) {
+                ClientHandler.pauseLock.wait();
+            }
+            System.out.println("{Logic} AFTER INIT < client: " + isClientActive
+                    + " > " + "< server: " + isServerActive + " > ");
+            if (isServerActive.get() && isLeader.get()) {
+                pingClients();
+            }
+        } catch (InterruptedException | UnknownHostException e) {
+            //Logging
+        }
+    }
+
+    /**
+     * Scanning network to find another servers.
+     */
+    private CopyOnWriteArrayList<InetAddress> scanNetwork() throws InterruptedException {
+        IpScanner.findNetworkIp();
+        Thread.sleep(2000);
+        return IpScanner.getAvailableIp();
+    }
+
+    /**
+     * If local ip address has max "priority" after scanning network and getting available ip addresses and it's not
+     * a leader - alert "NewLeader" sends to previous leader and then all nodes will restart and connect to current leader
+     */
+    private void assignNewLeader() throws InterruptedException {
+        isNewLeader.set(true);
+        Thread.sleep(400);
+        System.out.println("New leader created! " + isNewLeader.get());
+        int i = availableIp.size() - 2;
+        new Thread(new TcpClient(availableIp.get(i))).start();
+        synchronized (TcpClient.ipConnectionLock) {
+            TcpClient.ipConnectionLock.wait();
+        }
+    }
+
+    private InetAddress findLeaderIp(CopyOnWriteArrayList<InetAddress> networkLeaderCandidateChannels) {
+        Optional<InetAddress> leaderAddress =
+                networkLeaderCandidateChannels
+                        .stream()
+                        .max(Comparator.comparing((address)
+                                -> Byte.toUnsignedInt(address.getAddress()[3])));
+        System.out.println("Leader IP address: " + leaderAddress);
+        return leaderAddress.get();
+    }
+
+    private void pingClients() {
+        for (Channel channel : ServerHandler.getPingChannels()) {
+            if (channel.isActive() || channel.isOpen()) {
+                channel.writeAndFlush("Ping");
+            } else {
+                ServerHandler.getPingChannels().remove(channel);
+            }
+        }
     }
 
     /**
@@ -53,116 +132,10 @@ public class ApplicationLogic extends Thread {
     }
 
     /**
-     * Restart client after loosing connection with server
-     */
-    private void restartClient(InetAddress inetAddress) {
-        client = new TcpClient(inetAddress);
-        new Thread(client).start();
-    }
-
-    /**
-     * Scanning network to find another servers
-     */
-    private CopyOnWriteArrayList<InetAddress> scanNetwork() throws InterruptedException {
-        IpScanner.findNetworkIp();
-        Thread.sleep(3000);
-        return IpScanner.getAvailableIp();
-    }
-
-
-    /**
-     * This method stops server in case of leader is chosen
+     * This method stops server in case of new leader is chosen
      */
     public static void stopServer() {
         ServerHandler.getPingChannels().clear();
         server.stopServer();
     }
-
-
-    /**
-     * Main logic of application.
-     * First launch with several apps - choosing leader, then client with max priority gets "leader notification"
-     * and sends response, that message was accepted to active server. Server is stops; Then "leader app starts
-     * an own server, all clients waiting for reconnecting. Finally server starts pinging another participants"
-     * In case of server - leader stops pinging (clients lose connection with server) - clients initiate
-     * new ApplicationLogic thread for new reconnection.
-     */
-    public void run() {
-        try {
-            initServer();
-            synchronized (TcpServer.pauseLock) {
-                TcpServer.pauseLock.wait();
-            }
-            availableIp = scanNetwork();
-            Thread.sleep(5000);
-            InetAddress leaderAddress = findLeaderIp(IpScanner.getAvailableIp());
-            if (InetAddress.getLocalHost().equals(leaderAddress) && availableIp.size() > 1) {
-                assignNewLeader();
-            }
-            initClient(leaderAddress);
-            synchronized (ClientHandler.pauseLock) {
-                ClientHandler.pauseLock.wait();
-            }
-            System.out.println("{Logic} AFTER INIT < client: " + isClientActive +
-                    " > " + "< server: " + isServerActive + " > ");
-            if (!isLeaderExists.get()) {
-
-                System.out.println("{Logic} LEADER condition: { isLeader: " + isLeader.get() +
-                        " } { isServerActive: " + isServerActive + " } { isClientActive: " + isClientActive
-                        + " }");
-            }
-            if (isServerActive.get() && isLeader.get()) {
-                pingClients();
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void assignNewLeader() {
-        isNewLeader.set(true);
-        for (int i = availableIp.size() - 2; i >= 0; i--) {
-            new TcpClient(availableIp.get(i));
-        }
-
-    }
-
-    private InetAddress findLeaderIp(CopyOnWriteArrayList<InetAddress> networkLeaderCandidateChannels) {
-        System.out.println("Leader candidate channel: " + networkLeaderCandidateChannels);
-        Optional<InetAddress> leaderAddress = networkLeaderCandidateChannels
-                .stream()
-                .max(Comparator.comparing((address)
-                        -> Byte.toUnsignedInt(address.getAddress()[3])));
-        System.out.println("Leader IP address: " + leaderAddress);
-        return leaderAddress.get();
-    }
-
-    /**
-     * This method for creating leader. Priority for each participant generates randomly when application starts.
-     * After launching several apps server which takes port first, waiting for other clients to establish connection
-     * and choose leader. Initially leader will be chosen if server find two clients. Leader is app with maximum priority.
-     * App that connected after selection just connects to current leader.
-     */
-    /*private void createLocalLeader() throws InterruptedException {
-        if (isServerActive.get()) {
-            while (ServerHandler.getLocalLeaderCandidateChannels().size() < MIN_APP_UNIT_FOR_LEADER_SELECTION) {
-                System.out.println("{Logic} Waiting for more connections " + ServerHandler.getLocalLeaderCandidateChannels().size());
-                Thread.sleep(2000);
-            }
-            Channel leaderChannel = findLocalLeader(ServerHandler.getLocalLeaderCandidateChannels());
-            sendLocalLeaderNotification(leaderChannel);
-        }
-    }*/
-    private void pingClients() {
-        for (Channel channel : ServerHandler.getPingChannels()) {
-            if (channel.isActive() || channel.isOpen()) {
-                channel.writeAndFlush("Ping");
-            } else {
-                ServerHandler.getPingChannels().remove(channel);
-            }
-        }
-    }
-
 }

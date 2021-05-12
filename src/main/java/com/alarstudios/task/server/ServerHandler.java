@@ -7,14 +7,10 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.util.CharsetUtil;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ServerHandler extends SimpleChannelInboundHandler<String> {
 
-    public static final Object pauseLock = new Object();
-    private static final ConcurrentHashMap<Channel, Integer> NetworkLeaderCandidateChannels = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<Channel, Integer> LocalLeaderCandidateChannels = new ConcurrentHashMap<>();
     private static CopyOnWriteArrayList<Channel> pingChannels = new CopyOnWriteArrayList<>();
 
     @Override
@@ -33,18 +29,18 @@ public class ServerHandler extends SimpleChannelInboundHandler<String> {
             ctx.writeAndFlush("LeaderExists");
             return;
         }
-
+        if (msg.contains("newLeader")) {
+            ApplicationLogic.isNewLeaderExists.set(true);
+            ApplicationLogic.isLeader.set(false);
+            System.out.println("{ClientHandler} New leader exists!!!");
+            ApplicationLogic.stopServer();
+            ctx.close();
+            return;
+        }
         if (msg.contains("Pong")) {
             ctx.writeAndFlush("Ping" + System.lineSeparator());
-            return;
         }
-        if (msg.contains("newLeader")) {
-            ApplicationLogic.isLeader.set(false);
-            System.out.println("{ClientHandler} New leader exist!!!");
-            ctx.flush();
-            ApplicationLogic.stopServer();
-            return;
-        }
+
     }
 
     @Override

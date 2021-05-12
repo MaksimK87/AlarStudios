@@ -16,7 +16,7 @@ import java.net.InetAddress;
 
 public class TcpServer implements Runnable {
 
-    public static volatile Object pauseLock = new Object();
+    public static final Object pauseLock = new Object();
     private static final int PORT = 53200;
     private ChannelFuture channelFuture;
 
@@ -32,7 +32,8 @@ public class TcpServer implements Runnable {
 
                 @Override
                 protected void initChannel(SocketChannel socketChannel) {
-                    socketChannel.pipeline().addLast(new StringEncoder()
+                    socketChannel.pipeline().addLast
+                            (new StringEncoder()
                             , new StringDecoder()
                             , new ServerHandler());
                 }
@@ -56,6 +57,9 @@ public class TcpServer implements Runnable {
                     pauseLock.notify();
                 }
                 System.out.println("{TcpServer} server was stopped");
+                if (ApplicationLogic.isNewLeaderExists.get()) {
+                    new ApplicationLogic().start();
+                }
             } catch (InterruptedException e) {
                 // Logging exception
             }
